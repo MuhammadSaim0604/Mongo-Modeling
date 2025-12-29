@@ -812,14 +812,32 @@ const ProjectConfig = ({ config, availableFields, schema, updateConfig }) => {
   const [showAddField, setShowAddField] = useState(false)
   const [newFieldName, setNewFieldName] = useState('')
   const [newFieldExpr, setNewFieldExpr] = useState('')
+  const [editingField, setEditingField] = useState(null)
+  const [editFieldName, setEditFieldName] = useState('')
+  const [editFieldValue, setEditFieldValue] = useState('')
   const flatSchema = flattenSchemaForDisplay(schema)
 
   const toggleField = (fieldName) => {
     const newFields = { ...fields }
-    if (newFields[fieldName] !== undefined) {
-      delete newFields[fieldName]
+    
+    // Check if it's a nested field (contains a dot)
+    if (fieldName.includes('.')) {
+      // Extract the last part of the path as the field name
+      const lastPart = fieldName.split('.').pop()
+      
+      // Check if this extracted name is already being used
+      if (newFields[lastPart] !== undefined && newFields[lastPart] === `$${fieldName}`) {
+        delete newFields[lastPart]
+      } else {
+        newFields[lastPart] = `$${fieldName}`
+      }
     } else {
-      newFields[fieldName] = 1
+      // Simple toggle for non-nested fields
+      if (newFields[fieldName] !== undefined) {
+        delete newFields[fieldName]
+      } else {
+        newFields[fieldName] = 1
+      }
     }
     updateConfig('fields', newFields)
   }
@@ -840,9 +858,43 @@ const ProjectConfig = ({ config, availableFields, schema, updateConfig }) => {
     updateConfig('fields', newFields)
   }
 
+  const startEditField = (fieldName, fieldValue) => {
+    setEditingField(fieldName)
+    setEditFieldName(fieldName)
+    setEditFieldValue(typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue))
+  }
+
+  const saveEditField = () => {
+    if (editFieldName && editingField) {
+      const newFields = { ...fields }
+      delete newFields[editingField]
+      newFields[editFieldName] = editFieldValue || 1
+      updateConfig('fields', newFields)
+      setEditingField(null)
+      setEditFieldName('')
+      setEditFieldValue('')
+    }
+  }
+
+  const cancelEditField = () => {
+    setEditingField(null)
+    setEditFieldName('')
+    setEditFieldValue('')
+  }
+
   const customFields = Object.entries(fields).filter(([name, val]) => 
     !availableFields.includes(name) && val !== 0
   )
+
+  const isFieldSelected = (fieldName) => {
+    if (fields[fieldName] === 1) return true
+    // For nested fields, check if they are extracted with their own name
+    if (fieldName.includes('.')) {
+      const lastPart = fieldName.split('.').pop()
+      return fields[lastPart] === `$${fieldName}`
+    }
+    return false
+  }
 
   return (
     <div className="space-y-4">
@@ -857,7 +909,7 @@ const ProjectConfig = ({ config, availableFields, schema, updateConfig }) => {
             >
               <input
                 type="checkbox"
-                checked={fields[field.fullPath] === 1}
+                checked={isFieldSelected(field.fullPath)}
                 onChange={() => toggleField(field.fullPath)}
                 className="w-4 h-4 rounded border-[var(--border)] text-violet-500"
               />
@@ -878,12 +930,37 @@ const ProjectConfig = ({ config, availableFields, schema, updateConfig }) => {
           <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2">Custom Fields</label>
           <div className="space-y-1">
             {customFields.map(([name, value]) => (
-              <div key={name} className="flex items-center gap-2 p-2 rounded-lg bg-[var(--bg-elevated)]">
-                <span className="text-sm text-[var(--text-primary)] flex-1">{name}</span>
-                <span className="text-xs text-[var(--text-muted)]">{typeof value === 'string' ? value : JSON.stringify(value)}</span>
-                <button onClick={() => removeCustomField(name)} className="p-1 text-red-400 hover:bg-red-500/20 rounded">
-                  <Trash2 size={12} />
-                </button>
+              <div key={name}>
+                {editingField === name ? (
+                  <div className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] space-y-2">
+                    <input
+                      type="text"
+                      value={editFieldName}
+                      onChange={(e) => setEditFieldName(e.target.value)}
+                      placeholder="Field name"
+                      className="w-full h-8 px-2 rounded-md text-sm bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--text-primary)]"
+                    />
+                    <input
+                      type="text"
+                      value={editFieldValue}
+                      onChange={(e) => setEditFieldValue(e.target.value)}
+                      placeholder="Value or expression"
+                      className="w-full h-8 px-2 rounded-md text-sm bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--text-primary)]"
+                    />
+                    <div className="flex gap-1">
+                      <button onClick={saveEditField} className="flex-1 h-7 rounded-md bg-emerald-500 text-white text-xs">Save</button>
+                      <button onClick={cancelEditField} className="flex-1 h-7 rounded-md bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--text-muted)] text-xs">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-[var(--bg-elevated)] cursor-pointer hover:bg-[var(--bg-hover)]" onClick={() => startEditField(name, value)}>
+                    <span className="text-sm text-[var(--text-primary)] flex-1">{name}</span>
+                    <span className="text-xs text-[var(--text-muted)]">{typeof value === 'string' ? value : JSON.stringify(value)}</span>
+                    <button onClick={(e) => { e.stopPropagation(); removeCustomField(name) }} className="p-1 text-red-400 hover:bg-red-500/20 rounded">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -111,19 +111,24 @@ const transformGroup = (schema, config, stageIndex) => {
   return newSchema
 }
 
+const isExcluded = (value) => value === 0 || value === '0'
+const isInclusion = (value) => value === 1 || typeof value === 'string' || typeof value === 'object'
+
 const transformProject = (schema, config, stageIndex) => {
   const fields = config.fields || {}
   const fieldNames = Object.keys(fields)
   
   if (fieldNames.length === 0) return [...schema]
   
-  const hasInclusions = fieldNames.some(f => fields[f] === 1 && f !== '_id')
-  const hasExclusions = fieldNames.some(f => fields[f] === 0)
+  // Check if this is inclusion mode: any field with value 1 or a field expression (string/object)
+  const hasInclusions = fieldNames.some(f => f !== '_id' && isInclusion(fields[f]))
+  const hasExclusions = fieldNames.some(f => isExcluded(fields[f]))
   
   if (hasInclusions) {
     const newSchema = []
     
-    if (fields._id !== 0) {
+    // Include _id unless explicitly excluded
+    if (!isExcluded(fields._id)) {
       const idField = schema.find(f => f.name === '_id')
       if (idField) {
         newSchema.push({ ...idField })
@@ -132,7 +137,11 @@ const transformProject = (schema, config, stageIndex) => {
     
     fieldNames.forEach(fieldName => {
       if (fieldName === '_id') return
-      if (fields[fieldName] === 1) {
+      
+      const fieldValue = fields[fieldName]
+      
+      if (fieldValue === 1) {
+        // Simple inclusion: field exists as-is
         const existingField = schema.find(f => f.name === fieldName)
         if (existingField) {
           newSchema.push({ ...existingField })
@@ -142,8 +151,20 @@ const transformProject = (schema, config, stageIndex) => {
             isNew: true
           }))
         }
-      } else if (typeof fields[fieldName] === 'string' || typeof fields[fieldName] === 'object') {
-        newSchema.push(createField(fieldName, FieldType.MIXED, {
+      } else if (typeof fieldValue === 'string' || typeof fieldValue === 'object') {
+        // Field expression: extract or transform field
+        let fieldType = FieldType.MIXED
+        
+        if (typeof fieldValue === 'string' && fieldValue.startsWith('$')) {
+          const refPath = fieldValue.slice(1) // Remove $
+          // Search in schema for the referenced field
+          const refField = findFieldInSchema(schema, refPath)
+          if (refField) {
+            fieldType = refField.type
+          }
+        }
+        
+        newSchema.push(createField(fieldName, fieldType, {
           fromStage: stageIndex,
           isNew: true
         }))
@@ -155,11 +176,29 @@ const transformProject = (schema, config, stageIndex) => {
   
   if (hasExclusions) {
     return schema.filter(field => {
-      return fields[field.name] !== 0
+      return !isExcluded(fields[field.name])
     })
   }
   
   return [...schema]
+}
+
+const findFieldInSchema = (schema, path) => {
+  const parts = path.split('.')
+  let currentLevel = schema
+  
+  for (const part of parts) {
+    const found = currentLevel.find(f => f.name === part)
+    if (!found) return null
+    
+    if (parts.indexOf(part) === parts.length - 1) {
+      return found
+    }
+    
+    currentLevel = found.children || []
+  }
+  
+  return null
 }
 
 const transformSort = (schema, config) => {
@@ -185,7 +224,8 @@ const transformUnwind = (schema, config, stageIndex) => {
       return createField(field.name, field.elementType || FieldType.OBJECT, {
         path: field.path,
         isArray: false,
-        fromStage: stageIndex
+        fromStage: stageIndex,
+        children: field.children
       })
     }
     return { ...field }

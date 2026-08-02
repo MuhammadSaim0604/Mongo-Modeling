@@ -17,6 +17,7 @@
 
 > 🚀 A modern visual MongoDB schema designer for building collections, relationships, aggregation pipelines, and production-ready Mongoose models—all with real-time code generation.
 
+> 🌐 Live demo: https://mongo-modeling.vercel.app/
 
 ## 🌟 Overview
 
